@@ -22,6 +22,7 @@ import  {
   TransitionInterface,
 } from '@stackstorm/st2flow-model/interfaces';
 import  { NotificationInterface } from '@stackstorm/st2flow-notifications';
+import  { Node } from 'react';
 
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
@@ -29,10 +30,9 @@ import { PropTypes } from 'prop-types';
 import cx from 'classnames';
 import fp from 'lodash/fp';
 import { uniqueId, uniq } from 'lodash';
-import isEqual from 'lodash/isEqual';
 
 import Notifications from '@stackstorm/st2flow-notifications';
-import { HotKeys } from 'react-hotkeys';
+import {HotKeys} from 'react-hotkeys';
 
 import  { BoundingBox } from './routing-graph';
 import Task from './task';
@@ -47,9 +47,8 @@ import PoissonRectangleSampler from './poisson-rect';
 
 import { origin } from './const';
 
-import store from '../../apps/st2-workflows/store';
-
 import style from './style.css';
+import store from '../../apps/st2-workflows/store';
 type DOMMatrix = {
   m11: number,
   m22: number
@@ -229,17 +228,10 @@ export default class Canvas extends Component {
     nextTask: PropTypes.string,
     isCollapsed: PropTypes.object,
     toggleCollapse: PropTypes.func,
-    dirtyflag: PropTypes.bool,
-    fetchActionscalled: PropTypes.func,
-    saveData: PropTypes.func,
-    undo: PropTypes.func,
-    redo: PropTypes.func,
-    save: PropTypes.func,
   }
 
   state = {
     scale: 0,
-    copiedTask: null,
   }
 
   componentDidMount() {
@@ -260,10 +252,8 @@ export default class Canvas extends Component {
     this.handleUpdate();
   }
 
-  componentDidUpdate(prevProps) {
+  componentDidUpdate() {
     this.handleUpdate();
-
-    this.handleAutoSaveUpdates(prevProps);
   }
 
   componentWillUnmount() {
@@ -392,23 +382,8 @@ export default class Canvas extends Component {
       // finally, place the unplaced tasks.  using handleTaskMove will also ensure
       //   that the placement gets set on the model and the YAML.
       needsCoords.forEach(({task, transitionsTo}) => {
-        this.handleTaskMove(task, sampler.getNext(task.name, transitionsTo));
+        this.handleTaskMove(task, sampler.getNext(task.name, transitionsTo),true);
       });
-    }
-  }
-
-  handleAutoSaveUpdates(prevProps) {
-    const {saveData, transitions, tasks} = this.props;
-    const { autosaveEnabled } = store.getState();
-
-    if (autosaveEnabled) {
-      if(!isEqual(prevProps.transitions, transitions)) {
-        saveData();
-      }
-
-      if(!isEqual(prevProps.tasks, tasks)) {
-        this.props.saveData();
-      }
     }
   }
 
@@ -596,18 +571,16 @@ export default class Canvas extends Component {
     return false;
   }
 
-  handleTaskMove = async (task: TaskRefInterface, points: CanvasPoint) => {
+  handleTaskMove = async (task: TaskRefInterface, points: CanvasPoint,autoSave) => {
     const x = points.x;
     const y = points.y;
     const coords = {x, y};
     this.props.issueModelCommand('updateTask', task, { coords });
-
-    const { autosaveEnabled } = store.getState();
     
-    if (autosaveEnabled && this.props.dirtyflag) {
-      this.props.saveData();
+    if(autoSave && !this.props.dirtyflag) {
       await this.props.fetchActionscalled();
-    }
+      this.props.saveData();
+    }  
    
   }
 
@@ -740,71 +713,17 @@ export default class Canvas extends Component {
         style={{height: '100%'}}
         focused={true}
         attach={document.body}
-        keyMap={{
-          copy: [ 'ctrl+c', 'command+c' ],
-          cut: [ 'ctrl+x', 'command+x' ],
-          paste: [ 'ctrl+v', 'command+v' ],
-          open: [ 'ctrl+o', 'command+o' ],
-          undo: [ 'ctrl+z', 'command+z' ],
-          redo: [ 'ctrl+shift+z', 'command+shift+z' ],
-          save: [ 'ctrl+s', 'command+s' ],
-        }}
-        handlers={{
-          copy: () => {
-            if (selectedTask) {
-              this.setState({ copiedTask: selectedTask });
-            }
-          },
-          cut: () => {
-            if (selectedTask) {
-              this.setState({ copiedTask: selectedTask });
+        handlers={{handleTaskDelete: e => {
+          // This will break if canvas elements (tasks/transitions) become focus targets with
+          //  tabindex or automatically focusing elements.  But in that case, the Task already
+          //  has a handler for delete waiting.
+          if(e.target === document.body) {
+            e.preventDefault();
+            if(selectedTask) {
               this.handleTaskDelete(selectedTask);
             }
-          },
-          paste: () => {
-            if (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') {
-              // allow regular copy/paste from clipboard when inputs or textareas are focused
-              return;
-            }
-
-            const { copiedTask } = this.state;
-            if (copiedTask) {
-              const taskHeight = copiedTask.size.y;
-              const taskCoords = copiedTask.coords;
-
-              const newCoords = {
-                x: taskCoords.x,
-                y: taskCoords.y + taskHeight + 10,
-              };
-
-              const lastIndex = tasks
-                .map(task => (task.name.match(/task(\d+)/) || [])[1])
-                .reduce((acc, item) => Math.max(acc, item || 0), 0);
-
-              this.props.issueModelCommand('addTask', {
-                name: `task${lastIndex + 1}`,
-                action: copiedTask.action,
-                coords: Vector.max(newCoords, new Vector(0, 0)),
-              });
-            }
-          },
-          open: () => {
-            if (selectedTask) {
-              window.open(`${location.origin}/#/action/${selectedTask.action}`, '_blank');
-            }
-          },
-          undo: () => {
-            this.props.undo();
-          },
-          redo: () => {
-            this.props.redo();
-          },
-          save: (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.props.save();
-          },
-        }}
+          }
+        }}}
       >
         <div
           className={cx(this.props.className, this.style.component)}
@@ -829,7 +748,7 @@ export default class Canvas extends Component {
                       task={task}
                       selected={task.name === navigation.task && !selectedTransitionGroups.length}
                       scale={scale}
-                      onMove={(...a) => this.handleTaskMove(task, ...a)}
+                      onMove={(...a) => this.handleTaskMove(task, ...a,false)}
                       onConnect={(...a) => this.handleTaskConnect(task, ...a)}
                       onClick={() => this.handleTaskSelect(task)}
                       onDelete={() => this.handleTaskDelete(task)}

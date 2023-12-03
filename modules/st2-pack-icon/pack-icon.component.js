@@ -82,11 +82,9 @@ export default class PackIcon extends React.Component {
           <img src="img/icon.png" width="32" height="32" />
         );
       }
-      /* Unreachable code, commented out :shrug:
       return (
         <img className={cx(style.image, small && style.imageSmall)} src={icons[name]} />
       );
-      */
       // ^^ WAT?
     }
 

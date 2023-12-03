@@ -97,6 +97,8 @@ export class API {
             'Authorization': `Basic ${toBase64(`${username}:${password}`)}`,
             'content-type': 'application/json',
           },
+          // You need to define data field for axios to set content-type header
+          data: null,
         });
 
         if (res.status !== 201) {
@@ -106,7 +108,7 @@ export class API {
             message: res.data.faultstring || res.data,
           };
         }
-
+  
         this.token = res.data;
       }
       catch (err) {
@@ -133,9 +135,6 @@ export class API {
         server: this.server,
         token: this.token,
       }));
-      localStorage.setItem('logged_in',JSON.stringify({
-        loggedIn: true,
-      }));
     }
   }
 
@@ -143,8 +142,6 @@ export class API {
     this.token = null;
     this.server = null;
     localStorage.removeItem('st2Session');
-    localStorage.removeItem('logged_in');
-
   }
 
   isConnected() {
@@ -178,30 +175,28 @@ export class API {
 
     const headers = {
       'content-type': 'application/json',
+      
+
     };
 
     if (this.token && this.token.token) {
       headers['x-auth-token'] = this.token.token;
     }
-
+    
     const config = {
       method,
       url: this.route(opts),
       params: query,
       headers,
-      transformResponse: [ function transformResponse(data, headers) {
-        if (typeof data === 'string' && headers['content-type'] &&
-            headers['content-type'].indexOf('application/json') > -1) {
-          try {
-            data = JSON.parse(data);
-          }
-          catch (e) {
-            /* Ignore */
-          }
-        }
-
-        return data;
-      } ],
+      transformResponse: [function transformResponse(data, headers) {
+      if (typeof data === 'string' && headers["content-type"] === "application/json") {
+      try {
+        data = JSON.parse(data);
+      } catch (e) { /* Ignore */ }
+    }
+    return data;
+      }
+  ],
       data,
       withCredentials: true,
       paramsSerializer: params => {
@@ -215,14 +210,14 @@ export class API {
       },
       // responseType: 'json',
     };
-
+  
     if (this.rejectUnauthorized === false) {
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     }
     else {
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1';
     }
-
+  
     const response = await axios(config);
     const contentType = (response.headers || {})['content-type'] || [];
     const requestId = (response.headers || {})['X-Request-ID'] || null;
